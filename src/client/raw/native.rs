@@ -1,12 +1,13 @@
 use std::sync::Arc;
 
+use log::debug;
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     sync::{Mutex, broadcast},
 };
 
 use crate::{
-    client::{IClient, IStreamClient},
+    client::native::{IClient, IStreamClient},
     stream::ConnectStream,
     types::{config::NetConfig, error::NetResultStatus},
 };
@@ -23,14 +24,13 @@ where
             .writer
             .write_all(&data)
             .await
-            .map_err(|_| NetResultStatus::NetError);
+            .map_err(|e| NetResultStatus::ConnectionError);
         self.writer
             .flush()
             .await
-            .map_err(|_| NetResultStatus::NetError)
+            .map_err(|e| NetResultStatus::ConnectionError)
     }
     async fn close(&mut self) {
-        // let _ = self.send(&[0xff]).await;
         let _ = self.writer.shutdown().await;
     }
 }
@@ -92,8 +92,9 @@ where
                         let _ = tx_clone.send(Ok(None));
                         break;
                     }
-                    Err(_) => {
+                    Err(e) => {
                         let _ = tx_clone.send(Err(NetResultStatus::SocketError));
+                        debug!("Socket stream error: {:?}", e);
                         break;
                     }
                 }
@@ -124,7 +125,7 @@ where
         if let Some(writer) = guard.as_mut() {
             writer.send(&data).await
         } else {
-            Err(NetResultStatus::NetError)
+            Err(NetResultStatus::InternalError)
         }
     }
 

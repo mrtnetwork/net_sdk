@@ -1,13 +1,14 @@
 use std::{str::FromStr, sync::Arc};
 
 use crate::{
-    client::{IClient, IStreamClient},
+    client::native::{IClient, IStreamClient},
     stream::ConnectStream,
     types::{config::NetConfig, error::NetResultStatus},
 };
 use bytes::Bytes;
 use futures::{SinkExt, StreamExt, stream::SplitSink};
 use http::{HeaderName, HeaderValue};
+use log::debug;
 use tokio::sync::{Mutex, broadcast};
 use tokio_tungstenite::{
     WebSocketStream, client_async,
@@ -24,11 +25,15 @@ where
         self.writer
             .send(Message::Binary(Bytes::copy_from_slice(data)))
             .await
-            .map_err(|_| NetResultStatus::NetError)
+            .map_err(|e| {
+                debug!("Socket write error: {:?}", e);
+                NetResultStatus::ConnectionError
+            })
     }
     async fn close(&mut self) {
         let _ = self.writer.send(Message::Close(None)).await;
         let _ = self.writer.close().await;
+        debug!("Socket close.");
     }
 }
 pub struct WsStreamClient<T> {
@@ -70,22 +75,28 @@ where
             .url
             .clone()
             .into_client_request()
-            .map_err(|_| NetResultStatus::InvalidUrl)?;
+            .map_err(|e| {
+                debug!("Invalid socket url: {:?}, {:#?}", e, self.config.addr.url);
+                NetResultStatus::InvalidUrl
+            })?;
 
         // Override headers from config if present
         for header in &self.config.http.headers {
             // Assume NetHttpHeader has key/value strings
             request.headers_mut().insert(
-                HeaderName::from_str(&header.key)
-                    .map_err(|_| NetResultStatus::InvalidRequestParameters)?,
-                HeaderValue::from_str(&header.value).unwrap(),
+                HeaderName::from_str(&header.key()).map_err(|e| {
+                    debug!("Socket config headers error: {:?}", e);
+                    NetResultStatus::InvalidRequestParameters
+                })?,
+                HeaderValue::from_str(&header.value()).unwrap(),
             );
         }
 
         // Connect WebSocket
-        let (ws_stream, _response) = client_async(request, boxed_stream)
-            .await
-            .map_err(|_| NetResultStatus::NetError)?;
+        let (ws_stream, _response) = client_async(request, boxed_stream).await.map_err(|e| {
+            debug!("Socket connection error: {:?}", e);
+            NetResultStatus::ConnectionError
+        })?;
         let (write, mut read) = ws_stream.split();
 
         // Spawn background reader
@@ -109,7 +120,8 @@ where
                         *guard = None;
                         break;
                     }
-                    Some(Err(_)) => {
+                    Some(Err(e)) => {
+                        debug!("Socket stream error: {:?}", e);
                         let _ = tx_clone.send(Err(NetResultStatus::SocketError));
                         // On disconnect, set writer to None
                         let mut guard = writer_mutex.lock().await;
@@ -142,7 +154,7 @@ where
         if let Some(writer) = guard.as_mut() {
             writer.send(&data).await
         } else {
-            Err(NetResultStatus::NetError)
+            Err(NetResultStatus::InternalError)
         }
     }
 

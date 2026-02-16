@@ -1,4 +1,3 @@
-use rustls::pki_types::ServerName;
 use url::Url;
 
 use crate::types::{AddressInfo, error::NetResultStatus};
@@ -26,10 +25,6 @@ impl Utils {
             is_tls,
             url: url_str.to_string(),
         })
-    }
-
-    pub fn get_server_name(host: &str) -> Result<ServerName<'static>, NetResultStatus> {
-        ServerName::try_from(host.to_owned()).map_err(|_| NetResultStatus::InvalidUrl)
     }
 
     pub fn parse_tcp_url(url_str: &str) -> Result<AddressInfo, NetResultStatus> {
@@ -98,25 +93,5 @@ impl Utils {
     /// Optionally convert to str without copying (lifetime tied to Dart memory)
     pub unsafe fn cstr_to_str<'a>(ptr: *const u8) -> &'a str {
         std::str::from_utf8(unsafe { Utils::cstr_to_slice(ptr) }).unwrap_or("")
-    }
-
-    pub unsafe fn string_to_c_ptr(s: &str) -> *mut u8 {
-        let len = s.len();
-
-        let buf = unsafe { libc::malloc(len + 1) } as *mut u8;
-        if buf.is_null() {
-            return std::ptr::null_mut();
-        }
-
-        unsafe { std::ptr::copy_nonoverlapping(s.as_ptr(), buf, len) };
-        unsafe { *buf.add(len) = 0 };
-
-        buf
-    }
-
-    pub unsafe fn free_c_string(ptr: *mut u8) {
-        if !ptr.is_null() {
-            unsafe { libc::free(ptr as *mut libc::c_void) };
-        }
     }
 }

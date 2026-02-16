@@ -10,14 +10,13 @@ use tower::Service;
 use crate::{
     stream::ConnectStream,
     types::{
-        config::{NetConfig, NetMode, NetProtocol, NetTorClientConfig, TlsMode},
+        config::{NetConfig, NetMode, NetProtocol, NetTlsMode},
         error::NetResultStatus,
     },
     utils::{Utils, buffer::StreamEncoding},
 };
 pub struct GrpcConnector<T> {
-    pub tls_mode: TlsMode,
-    pub tor_config: Option<NetTorClientConfig>,
+    pub tls_mode: NetTlsMode,
     pub _marker: std::marker::PhantomData<T>,
 }
 
@@ -26,7 +25,6 @@ impl<T> GrpcConnector<T> {
         Self {
             _marker: std::marker::PhantomData,
             tls_mode: config.tls_mode,
-            tor_config: config.tor_config.clone(),
         }
     }
 }
@@ -45,7 +43,6 @@ where
 
     fn call(&mut self, req: Uri) -> Self::Future {
         let tls_mode = self.tls_mode.clone();
-        let tor_config = self.tor_config.clone();
         Box::pin(async move {
             let addr = Utils::parse_http_url(&req.to_string())?;
             let config = NetConfig {
@@ -54,7 +51,6 @@ where
                 protocol: NetProtocol::Grpc,
                 tls_mode: tls_mode,
                 http: Default::default(),
-                tor_config: tor_config,
                 encoding: StreamEncoding::Raw,
             };
             let stream = T::connect(&config).await?;

@@ -1,11 +1,15 @@
 use futures::stream;
+use log::debug;
 use std::{marker::PhantomData, sync::Arc};
 use tokio::sync::{Mutex, broadcast, oneshot};
 use tokio_tungstenite::tungstenite::http::uri::PathAndQuery;
 use tonic::{Code, client::Grpc, transport::Channel};
 
 use crate::{
-    client::{GrpcStreamHandle, IClient, IGrpcClient, grpc::raw_codec::BufferCodec},
+    client::{
+        grpc::raw_codec::BufferCodec,
+        native::{GrpcStreamHandle, IClient, IGrpcClient},
+    },
     stream::{ConnectStream, grpc::GrpcConnector},
     types::{config::NetConfig, error::NetResultStatus},
 };
@@ -42,12 +46,21 @@ where
         if reconnect_needed {
             // Create new channel
             let endpoint = tonic::transport::Endpoint::from_shared(self.config.addr.url.clone())
-                .map_err(|_| NetResultStatus::InvalidRequestParameters)?;
+                .map_err(|e| {
+                    debug!(
+                        "Create Grpc channel error: {:#?}, {:#?} ",
+                        e, self.config.addr.url
+                    );
+                    NetResultStatus::InvalidRequestParameters
+                })?;
             let connector = GrpcConnector::<T>::default(&self.config);
             let channel = endpoint
                 .connect_with_connector(connector)
                 .await
-                .map_err(|_| NetResultStatus::NetError)?;
+                .map_err(|e| {
+                    debug!("Grpc client error: {:#?}, {:#?} ", e, self.config.addr.url);
+                    NetResultStatus::ConnectionError
+                })?;
             *guard = Some(Grpc::new(channel));
         }
 
@@ -70,21 +83,22 @@ where
     ) -> Result<Vec<u8>, NetResultStatus> {
         self.connect().await?;
         let mut guard = self.client.lock().await;
-        let client = guard.as_mut().ok_or(NetResultStatus::NetError)?; // should exist after connect()
-
-        let path = PathAndQuery::try_from(method_name.to_string())
-            .map_err(|_| NetResultStatus::InvalidRequestParameters)?;
+        let client = guard.as_mut().ok_or(NetResultStatus::InternalError)?; // should exist after connect()
+        let path = PathAndQuery::try_from(method_name.to_string()).map_err(|e| {
+            debug!("Config grpc query path error: {:#?}", e);
+            NetResultStatus::InvalidRequestParameters
+        })?;
         let req = tonic::Request::new(Vec::from(buffer));
         let codec = BufferCodec::default();
 
-        client
-            .ready()
-            .await
-            .map_err(|_| NetResultStatus::NetError)?;
-        let resp = client
-            .unary(req, path, codec)
-            .await
-            .map_err(|_| NetResultStatus::NetError)?;
+        client.ready().await.map_err(|e| {
+            debug!("Grpc client error: {:#?}", e);
+            NetResultStatus::ConnectionError
+        })?;
+        let resp = client.unary(req, path, codec).await.map_err(|e| {
+            debug!("Grpc unary requeset error: {:#?}", e);
+            NetResultStatus::ConnectionError
+        })?;
         Ok(resp.into_inner())
     }
 
@@ -98,23 +112,25 @@ where
         let (cancel_tx, mut cancel_rx) = oneshot::channel::<()>();
         // Lock mutex to get client
         let mut guard = self.client.lock().await;
-        let client = guard.as_mut().ok_or(NetResultStatus::NetError)?; // should exist after connect()
+        let client = guard.as_mut().ok_or(NetResultStatus::ConnectionError)?; // should exist after connect()
 
-        let path = PathAndQuery::try_from(method_name.to_string())
-            .map_err(|_| NetResultStatus::InvalidRequestParameters)?;
+        let path = PathAndQuery::try_from(method_name.to_string()).map_err(|e| {
+            debug!("Grpc stream config query path error: {:#?}", e);
+            NetResultStatus::InvalidRequestParameters
+        })?;
         let codec = BufferCodec::default();
         let buffer = Vec::from(buffer);
         let req_stream = stream::once(async { buffer });
         let req = tonic::Request::new(req_stream);
 
-        client
-            .ready()
-            .await
-            .map_err(|_| NetResultStatus::NetError)?;
-        let stream = client
-            .streaming(req, path, codec)
-            .await
-            .map_err(|_| NetResultStatus::NetError)?;
+        client.ready().await.map_err(|e| {
+            debug!("Grpc client error: {:#?}", e);
+            NetResultStatus::ConnectionError
+        })?;
+        let stream = client.streaming(req, path, codec).await.map_err(|e| {
+            debug!("Grpc streaming request error: {:#?}", e);
+            NetResultStatus::ConnectionError
+        })?;
         let mut stream: tonic::Streaming<Vec<u8>> = stream.into_inner();
 
         let tx_clone: broadcast::Sender<Result<Option<Vec<u8>>, NetResultStatus>> = tx.clone();
@@ -135,6 +151,7 @@ where
                                 break;
                             }
                             Err(err) => {
+                                    debug!("Grpc streaming on message error: {:#?}", err);
                                      if err.code()==Code::Ok{
                                            let _ = tx_clone.send(Ok(None));
                                      }else{
@@ -159,5 +176,6 @@ where
     async fn close(&self) {
         let mut client = self.client.lock().await;
         *client = None;
+        debug!("Grpc client close.");
     }
 }

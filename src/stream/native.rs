@@ -1,7 +1,8 @@
 pub struct StreamUtils;
-use arti_client::{StreamPrefs, TorClient, TorClientConfig, config::TorClientConfigBuilder};
+use arti_client::{StreamPrefs, TorClient, config::TorClientConfigBuilder};
+use log::debug;
 use once_cell::sync::Lazy;
-use rustls::{ClientConfig, RootCertStore};
+use rustls::{ClientConfig, RootCertStore, pki_types::ServerName};
 use std::{fmt::Debug, path::Path, sync::Arc};
 use tokio::{
     io::{AsyncRead, AsyncWrite},
@@ -15,10 +16,9 @@ use crate::{
     stream::tls::{CustomTlsVerifier, TofuVerifier},
     types::{
         AddressInfo,
-        config::{NetConfig, NetHttpProtocol, NetProtocol, TlsMode},
+        config::{NetConfig, NetConfigTor, NetHttpProtocol, NetProtocol, NetTlsMode},
         error::NetResultStatus,
     },
-    utils::Utils,
 };
 
 static TOR_CLIENT: OnceCell<TorClient<PreferredRuntime>> = OnceCell::const_new();
@@ -36,30 +36,46 @@ static TLS_VERIFIER: Lazy<Arc<rustls::client::WebPkiServerVerifier>> = Lazy::new
 });
 
 impl StreamUtils {
-    pub async fn get_tor_client(
-        state_dir: Option<&String>,
-        cache_dir: Option<&String>,
-    ) -> Result<TorClient<PreferredRuntime>, NetResultStatus> {
-        let client = TOR_CLIENT
+    pub fn get_server_name(host: &str) -> Result<ServerName<'static>, NetResultStatus> {
+        ServerName::try_from(host.to_owned()).map_err(|_| NetResultStatus::InvalidUrl)
+    }
+    pub fn tor_inited() -> bool {
+        TOR_CLIENT.initialized()
+    }
+    pub async fn init_tor_config(config: &NetConfigTor) -> Result<(), NetResultStatus> {
+        if TOR_CLIENT.initialized() {
+            return Ok(());
+        }
+        let _ = TOR_CLIENT
             .get_or_try_init(|| async {
-                let config = match (state_dir, cache_dir) {
-                    (Some(s), Some(c)) => {
-                        TorClientConfigBuilder::from_directories(Path::new(&s), Path::new(&c))
-                            .build()
-                            .map_err(|_| NetResultStatus::InvalidTorConfig)?
-                    }
-                    _ => TorClientConfig::default(),
-                };
+                let config = TorClientConfigBuilder::from_directories(
+                    Path::new(&config.cache_dir),
+                    Path::new(&config.state_dir),
+                )
+                .build()
+                .map_err(|e| {
+                    debug!("Tor client error: {:#?} ", e);
+                    NetResultStatus::InvalidTorConfig
+                })?;
 
-                TorClient::create_bootstrapped(config)
-                    .await
-                    .map_err(|_| NetResultStatus::TorConnectionFailed)
+                TorClient::create_bootstrapped(config).await.map_err(|e| {
+                    debug!("create_bootstrapped error: {:#?} ", e);
+                    NetResultStatus::TorInitializationFailed
+                })
             })
             .await?;
-        Ok(client.clone())
+        Ok(())
     }
 
-    pub fn create_tls_config(tls_mode: &TlsMode) -> Result<ClientConfig, NetResultStatus> {
+    pub async fn get_tor_client() -> Result<TorClient<PreferredRuntime>, NetResultStatus> {
+        let client = TOR_CLIENT.get();
+        match client {
+            Some(client) => Ok(client.clone()),
+            None => Err(NetResultStatus::TorClientNotInitialized),
+        }
+    }
+
+    pub fn create_tls_config(tls_mode: &NetTlsMode) -> Result<ClientConfig, NetResultStatus> {
         let tls = TLS_VERIFIER.clone();
         let config = ClientConfig::builder()
             .dangerous()
@@ -79,31 +95,20 @@ impl StreamUtils {
     pub async fn create_tcp_stream(addr: &AddressInfo) -> Result<TcpStream, NetResultStatus> {
         TcpStream::connect((addr.host.to_string(), addr.port))
             .await
-            .map_err(|_| NetResultStatus::NetError)
+            .map_err(|e| {
+                debug!("create_tcp_stream error: {:#?}, {:#?} ", e, addr.host);
+                NetResultStatus::ConnectionError
+            })
     }
     pub async fn create_tls_stream<T: AsyncReadWrite>(
         addr: &AddressInfo,
         stream: T,
         protocol: &NetProtocol,
         http_protocol: &Option<NetHttpProtocol>,
-        tls_mode: &TlsMode,
+        tls_mode: &NetTlsMode,
     ) -> Result<TlsStream<T>, NetResultStatus> {
         let connector = StreamUtils::create_tls_connector(protocol, http_protocol, tls_mode)?;
-        let domain = Utils::get_server_name(&addr.host)?;
-        let stream = connector
-            .connect(domain, stream)
-            .await
-            .map_err(|_| NetResultStatus::TlsError)?;
-        Ok(stream)
-    }
-    pub async fn create_tls_stream_no_verify<T: AsyncReadWrite>(
-        addr: &AddressInfo,
-        stream: T,
-        protocol: &NetProtocol,
-        http_protocol: &Option<NetHttpProtocol>,
-    ) -> Result<TlsStream<T>, NetResultStatus> {
-        let connector = StreamUtils::create_no_verify_tls_connector(protocol, http_protocol)?;
-        let domain = Utils::get_server_name(&addr.host)?;
+        let domain = StreamUtils::get_server_name(&addr.host)?;
         let stream = connector
             .connect(domain, stream)
             .await
@@ -113,44 +118,24 @@ impl StreamUtils {
     pub async fn create_data_stream(
         config: &NetConfig,
     ) -> Result<arti_client::DataStream, NetResultStatus> {
-        let client = StreamUtils::get_tor_client(
-            config.tor_config.as_ref().map(|e| &e.state_dir),
-            config.tor_config.as_ref().map(|e| &e.cache_dir),
-        )
-        .await?;
+        let client = StreamUtils::get_tor_client().await?;
         let prefs = StreamPrefs::new();
         let stream = client
             .connect_with_prefs((config.addr.host.to_string(), config.addr.port), &prefs)
             .await
-            .map_err(|_| NetResultStatus::TorNetError);
+            .map_err(|e| {
+                debug!("Tor connection error: {:#?} ", e);
+                NetResultStatus::TorNetError
+            });
         stream
     }
 
     pub fn create_tls_connector(
         protocol: &NetProtocol,
         http_protocol: &Option<NetHttpProtocol>,
-        tls_mode: &TlsMode,
+        tls_mode: &NetTlsMode,
     ) -> Result<TlsConnector, NetResultStatus> {
         let mut tls_config = StreamUtils::create_tls_config(tls_mode)?;
-        match protocol {
-            NetProtocol::Http | NetProtocol::Grpc => {
-                tls_config.alpn_protocols = match http_protocol {
-                    Some(protocol) => match protocol {
-                        NetHttpProtocol::Http1 => vec![b"http/1.1".to_vec()],
-                        NetHttpProtocol::Http2 => vec![b"h2".to_vec()],
-                    },
-                    None => vec![b"h2".to_vec(), b"http/1.1".to_vec()],
-                };
-            }
-            _ => (),
-        }
-        Ok(TlsConnector::from(Arc::new(tls_config)))
-    }
-    pub fn create_no_verify_tls_connector(
-        protocol: &NetProtocol,
-        http_protocol: &Option<NetHttpProtocol>,
-    ) -> Result<TlsConnector, NetResultStatus> {
-        let mut tls_config = StreamUtils::create_no_verify_tls_config()?;
         match protocol {
             NetProtocol::Http | NetProtocol::Grpc => {
                 tls_config.alpn_protocols = match http_protocol {

@@ -1,23 +1,17 @@
-use arti_client::DataStream;
-use tokio::{
-    net::TcpStream,
-    sync::{
-        Mutex,
-        broadcast::{self, Receiver},
-    },
+use tokio::sync::{
+    Mutex,
+    broadcast::{self, Receiver},
 };
-use tokio_rustls::client::TlsStream;
+use wasm_bindgen_futures::spawn_local;
 
 use crate::{
-    client::{
-        native::IStreamClient, raw::native::RawStreamClient, websocket::native::WsStreamClient,
-    },
-    transport::native::{ISocketTransport, Transport},
+    client::{wasm::IStreamClient, websocket::wasm::WsStreamClient},
+    transport::wasm::{ISocketTransport, Transport},
     types::{
         DartCallback,
-        config::{NetConfig, NetConfigRequest, NetMode, NetProtocol},
+        config::{NetConfig, NetConfigRequest, NetProtocol},
         error::NetResultStatus,
-        native::request::{NetRequest, NetRequestSocket, NetRequestSocketSend},
+        request::{NetRequest, NetRequestSocketSend},
         response::{
             NetResponseKind, NetResponseSocketOk, NetResponseStream, NetResponseStreamData,
             NetResponseStreamError,
@@ -32,7 +26,7 @@ pub struct SocketTransport {
     rx: Mutex<Option<Receiver<Result<Option<Vec<u8>>, NetResultStatus>>>>,
     _transport_id: u32,
 }
-#[async_trait::async_trait]
+#[async_trait::async_trait(?Send)]
 impl Transport for SocketTransport {
     fn create(
         config: NetConfigRequest,
@@ -42,56 +36,23 @@ impl Transport for SocketTransport {
         let config = config
             .to_protocol_config(NetProtocol::Socket)
             .or_else(|_| config.to_protocol_config(NetProtocol::WebSocket))?;
-        let stream: Box<dyn IStreamClient> = match config.protocol {
-            NetProtocol::WebSocket => match (config.addr.is_tls, &config.mode) {
-                (true, NetMode::Tor) => {
-                    Box::new(WsStreamClient::<TlsStream<DataStream>>::default(config)?)
-                }
-
-                (true, NetMode::Clearnet) => {
-                    Box::new(WsStreamClient::<TlsStream<TcpStream>>::default(config)?)
-                }
-
-                (false, NetMode::Tor) => Box::new(WsStreamClient::<DataStream>::default(config)?),
-
-                (false, NetMode::Clearnet) => {
-                    Box::new(WsStreamClient::<TcpStream>::default(config)?)
-                }
-            },
-            NetProtocol::Socket => match (config.addr.is_tls, &config.mode) {
-                (true, NetMode::Tor) => {
-                    Box::new(RawStreamClient::<TlsStream<DataStream>>::default(config)?)
-                }
-
-                (true, NetMode::Clearnet) => {
-                    Box::new(RawStreamClient::<TlsStream<TcpStream>>::default(config)?)
-                }
-
-                (false, NetMode::Tor) => Box::new(RawStreamClient::<DataStream>::default(config)?),
-
-                (false, NetMode::Clearnet) => {
-                    Box::new(RawStreamClient::<TcpStream>::default(config)?)
-                }
-            },
-            _ => return Err(NetResultStatus::InvalidConfigParameters),
-        };
+        let client = WsStreamClient::default(config)?;
 
         Ok(Self {
-            stream: stream,
+            stream: Box::new(client),
             callback,
             rx: Mutex::new(None),
             _transport_id: transport_id,
         })
     }
-    async fn do_request<'a>(
-        &self,
-        request: NetRequest<'a>,
-    ) -> Result<NetResponseKind, NetResultStatus> {
+    async fn do_request(&self, request: NetRequest) -> Result<NetResponseKind, NetResultStatus> {
         let socket_requset = request.to_socket_request()?;
         let _ = match socket_requset {
-            NetRequestSocket::Subscribe => self.subscribe().await?,
-            NetRequestSocket::Unsubscribe => self.unsubscribe().await?,
-            NetRequestSocket::Send(socket_request_send) => self.send(socket_request_send).await?,
+            crate::types::request::NetRequestSocket::Subscribe => self.subscribe().await?,
+            crate::types::request::NetRequestSocket::Unsubscribe => self.unsubscribe().await?,
+            crate::types::request::NetRequestSocket::Send(socket_request_send) => {
+                self.send(socket_request_send).await?
+            }
         };
         Ok(NetResponseKind::Socket(NetResponseSocketOk))
     }
@@ -109,14 +70,17 @@ impl Transport for SocketTransport {
         self.stream.get_config()
     }
 }
-#[async_trait::async_trait]
+#[async_trait::async_trait(?Send)]
 impl ISocketTransport for SocketTransport {
-    async fn send<'a>(&self, data: &NetRequestSocketSend<'a>) -> Result<(), NetResultStatus> {
-        self.stream.send(&data.data).await
+    async fn send(&self, data: &NetRequestSocketSend) -> Result<(), NetResultStatus> {
+        self.stream.send(data.data()).await
     }
 
     async fn subscribe(&self) -> Result<(), NetResultStatus> {
+        // Create a new receiver from the inner RawStreamClient
         let mut rx = self.stream.subscribe().await?;
+
+        // Store it in self.rx
         {
             let mut guard = self.rx.lock().await;
             if guard.is_some() {
@@ -126,14 +90,16 @@ impl ISocketTransport for SocketTransport {
         }
         let callback = self.callback.clone();
         let encoding = self.get_config().encoding;
-        tokio::spawn(async move {
+        spawn_local(async move {
             let mut buffer = StreamBuffer::new(encoding);
             loop {
                 match rx.recv().await {
                     Ok(msg) => match msg {
                         Ok(data) => match data {
                             Some(data) => {
+                                // Try to parse/convert the incoming data
                                 if let Some(parsed) = buffer.add(data) {
+                                    // Send the processed data to callback
                                     callback(NetResponseKind::Stream(NetResponseStream::Data(
                                         NetResponseStreamData::new(None, parsed),
                                     )));
@@ -153,7 +119,6 @@ impl ISocketTransport for SocketTransport {
                     },
                     Err(broadcast::error::RecvError::Closed) => {
                         callback(NetResponseKind::Stream(NetResponseStream::Close(None)));
-
                         break;
                     }
                     Err(broadcast::error::RecvError::Lagged(_)) => {}

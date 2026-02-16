@@ -1,12 +1,15 @@
 use std::fmt;
 
+#[cfg(target_arch = "wasm32")]
+use wasm_bindgen::prelude::*;
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen)]
 #[repr(u8)]
 #[derive(Debug, Clone, Copy)]
 pub enum NetResultStatus {
     OK = 100,
     InvalidUrl = 1,
     TlsError = 2,
-    NetError = 3,
+    ConnectionError = 3,
     TorNetError = 4,
     SocketError = 10,
 
@@ -14,14 +17,16 @@ pub enum NetResultStatus {
     InvalidRequestParameters = 15,
     InvalidConfigParameters = 16,
     TransportNotFound = 17,
-    InvalidResponse = 18,
+    // InvalidResponse = 18,
     NotInitialized = 19,
-    AlreadyInitialized = 20,
+    // AlreadyInitialized = 20,
     InitializationFailed = 21,
     RequestTimeout = 22,
     InvalidTorConfig = 23,
-    TorConnectionFailed = 24,
-    MismatchHttpUrl = 25,
+    TorInitializationFailed = 24,
+    // MismatchHttpUrl = 25,
+    TorClientNotInitialized = 26,
+    InternalError = 27,
 }
 
 impl fmt::Display for NetResultStatus {

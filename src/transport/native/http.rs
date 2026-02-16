@@ -4,17 +4,18 @@ use tokio_rustls::client::TlsStream;
 
 use crate::{
     client::{
-        IHttpClient,
         http::native::{AutoSendRequest, HttpClient},
+        native::IHttpClient,
     },
-    transport::{Transport, native::IHttpTransport},
+    transport::native::{IHttpTransport, Transport},
     types::{
         DartCallback,
-        config::{NetConfig, NetMode, NetProtocol, NetRequestConfig},
+        config::{NetConfig, NetConfigRequest, NetMode, NetProtocol},
         error::NetResultStatus,
-        request::{NetHttpRequest, NetRequest},
+        native::request::{NetRequest, NetRequestHttp},
         response::NetResponseKind,
     },
+    utils::Utils,
 };
 
 pub struct HttpTransport {
@@ -22,14 +23,8 @@ pub struct HttpTransport {
     _callback: DartCallback,
     _transport_id: u32,
 }
-#[async_trait::async_trait]
-impl Transport for HttpTransport {
-    fn create(
-        config: NetRequestConfig,
-        callback: DartCallback,
-        transport_id: u32,
-    ) -> Result<Self, NetResultStatus> {
-        let config = config.to_protocol_config(NetProtocol::Http)?;
+impl HttpTransport {
+    fn create_client(config: NetConfig) -> Result<Box<dyn IHttpClient>, NetResultStatus> {
         let client: Box<dyn IHttpClient> = match config.protocol {
             NetProtocol::Http => match (config.addr.is_tls, &config.mode) {
                 (true, NetMode::Tor) => {
@@ -50,6 +45,18 @@ impl Transport for HttpTransport {
             },
             _ => return Err(NetResultStatus::InvalidConfigParameters),
         };
+        Ok(client)
+    }
+}
+#[async_trait::async_trait]
+impl Transport for HttpTransport {
+    fn create(
+        config: NetConfigRequest,
+        callback: DartCallback,
+        transport_id: u32,
+    ) -> Result<Self, NetResultStatus> {
+        let config = config.to_protocol_config(NetProtocol::Http)?;
+        let client = HttpTransport::create_client(config)?;
         Ok(Self {
             client: client,
             _callback: callback,
@@ -62,6 +69,24 @@ impl Transport for HttpTransport {
         request: NetRequest<'a>,
     ) -> Result<NetResponseKind, NetResultStatus> {
         let http_request = request.to_http_request()?;
+        let addr = Utils::parse_http_url(http_request.url)?;
+        let config = self.client.get_config();
+        if addr.host != config.addr.host {
+            let new_config = config.change_addr(addr);
+            let client = HttpTransport::create_client(new_config)?;
+            let result = client
+                .send(
+                    &http_request.url,
+                    &http_request.method,
+                    http_request.body,
+                    http_request.headers.as_ref(),
+                    http_request.encoding,
+                    &http_request.retry_config,
+                )
+                .await?;
+            return Ok(NetResponseKind::Http(result));
+        }
+        // if(http_request.)
         self.send(http_request).await
     }
     async fn close(&self) {
@@ -76,17 +101,17 @@ impl Transport for HttpTransport {
 impl IHttpTransport for HttpTransport {
     async fn send<'a>(
         &self,
-        request: &NetHttpRequest<'a>,
+        request: &NetRequestHttp<'a>,
     ) -> Result<NetResponseKind, NetResultStatus> {
-        // self.get_config().e
         let result = self
             .client
             .send(
-                request.url,
-                request.method,
+                &request.url,
+                &request.method,
                 request.body,
                 request.headers.as_ref(),
                 request.encoding,
+                &request.retry_config,
             )
             .await?;
         Ok(NetResponseKind::Http(result))

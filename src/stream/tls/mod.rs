@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use rustls::{SignatureScheme, client::danger::ServerCertVerifier, pki_types::ServerName};
 
-use crate::types::config::TlsMode;
+use crate::types::config::NetTlsMode;
 #[derive(Debug, Clone)]
 pub struct TofuVerifier;
 impl ServerCertVerifier for TofuVerifier {
@@ -61,12 +61,12 @@ impl ServerCertVerifier for TofuVerifier {
 #[derive(Debug)]
 pub struct CustomTlsVerifier {
     verifier: Arc<rustls::client::WebPkiServerVerifier>,
-    tls_mode: TlsMode,
+    tls_mode: NetTlsMode,
 }
 impl CustomTlsVerifier {
     pub fn new(
         verifier: Arc<rustls::client::WebPkiServerVerifier>,
-        tls_mode: TlsMode,
+        tls_mode: NetTlsMode,
     ) -> CustomTlsVerifier {
         Self { verifier, tls_mode }
     }
@@ -91,8 +91,10 @@ impl ServerCertVerifier for CustomTlsVerifier {
         match result {
             Ok(e) => Ok(e),
             Err(e) => match self.tls_mode {
-                TlsMode::Safe => Err(e),
-                TlsMode::Dangerous => Ok(rustls::client::danger::ServerCertVerified::assertion()),
+                NetTlsMode::Safe => Err(e),
+                NetTlsMode::Dangerous => {
+                    Ok(rustls::client::danger::ServerCertVerified::assertion())
+                }
             },
         }
     }

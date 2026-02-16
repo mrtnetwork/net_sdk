@@ -1,89 +1,309 @@
 use crate::{
     types::{
-        config::{NetHttpHeaderC, NetProtocol},
+        config::{NetHttpHeader, NetProtocol},
         error::NetResultStatus,
     },
-    utils::{Utils, buffer::StreamEncoding},
+    utils::buffer::StreamEncoding,
 };
-use libc::c_char;
-use std::{mem::ManuallyDrop, slice};
+use wasm_bindgen::prelude::*;
 
-pub struct NetGrpcRequestUnary<'a> {
-    pub method: &'a str,
-    pub data: &'a [u8],
+#[derive(Clone)]
+#[wasm_bindgen]
+pub struct NetRequestGrpcUnary {
+    method: String,
+    data: Vec<u8>,
+}
+#[wasm_bindgen]
+impl NetRequestGrpcUnary {
+    #[wasm_bindgen]
+    pub fn create(method: String, data: Vec<u8>) -> Self {
+        Self { method, data }
+    }
+}
+impl NetRequestGrpcUnary {
+    pub fn method(&self) -> &str {
+        &self.method
+    }
+
+    pub fn data(&self) -> &[u8] {
+        &self.data
+    }
 }
 
-pub struct NetGrpcRequestStream<'a> {
-    pub method: &'a str,
-    pub data: &'a [u8],
+#[derive(Clone)]
+#[wasm_bindgen]
+pub struct NetRequestGrpcStream {
+    method: String,
+    data: Vec<u8>,
+}
+#[wasm_bindgen]
+impl NetRequestGrpcStream {
+    #[wasm_bindgen]
+    pub fn create(method: String, data: Vec<u8>) -> Self {
+        Self { method, data }
+    }
+}
+impl NetRequestGrpcStream {
+    pub fn method(&self) -> &str {
+        &self.method
+    }
+
+    pub fn data(&self) -> &[u8] {
+        &self.data
+    }
 }
 
-pub struct NetGrpcRequestUnsubscribe {
-    pub id: i32,
+#[derive(Clone)]
+#[wasm_bindgen]
+pub struct NetRequestGrpcUnsubscribe {
+    id: i32,
 }
-pub struct NetHttpHeaderRef<'a> {
-    pub key: &'a str,
-    pub value: &'a str,
-}
-
-pub enum GrpcRequest<'a> {
-    Unary(NetGrpcRequestUnary<'a>),
-    Stream(NetGrpcRequestStream<'a>),
-    Unsubscribe(NetGrpcRequestUnsubscribe),
-}
-
-pub struct NetHttpRequest<'a> {
-    pub method: &'a str,
-    pub url: &'a str,
-    pub body: Option<&'a [u8]>,
-    pub headers: Option<Vec<NetHttpHeaderRef<'a>>>,
-    pub encoding: StreamEncoding,
+#[wasm_bindgen]
+impl NetRequestGrpcUnsubscribe {
+    #[wasm_bindgen]
+    pub fn create(id: i32) -> Self {
+        Self { id }
+    }
 }
 
-pub struct NetSocketRequestSend<'a> {
-    pub data: &'a [u8],
+impl NetRequestGrpcUnsubscribe {
+    pub fn id(&self) -> i32 {
+        self.id
+    }
 }
 
-pub enum NetSocketRequest<'a> {
+#[derive(Clone)]
+
+pub enum NetRequestGrpc {
+    Unary(NetRequestGrpcUnary),
+    Stream(NetRequestGrpcStream),
+    Unsubscribe(NetRequestGrpcUnsubscribe),
+}
+
+#[derive(Clone)]
+#[wasm_bindgen]
+pub struct NetRequestHttp {
+    method: String,
+    url: String,
+    body: Option<Vec<u8>>,
+    headers: Option<Vec<NetHttpHeader>>,
+    encoding: StreamEncoding,
+}
+#[wasm_bindgen]
+impl NetRequestHttp {
+    #[wasm_bindgen]
+    pub fn create(
+        method: String,
+        url: String,
+        body: Option<Vec<u8>>,
+        headers: Option<Vec<NetHttpHeader>>,
+        encoding: StreamEncoding,
+    ) -> Self {
+        Self {
+            method,
+            url,
+            body,
+            headers,
+            encoding,
+        }
+    }
+}
+#[wasm_bindgen]
+#[derive(Clone)]
+pub struct NetRequestSocketSend {
+    data: Vec<u8>,
+}
+#[wasm_bindgen]
+impl NetRequestSocketSend {
+    #[wasm_bindgen]
+    pub fn create(data: Vec<u8>) -> Self {
+        Self { data }
+    }
+}
+
+impl NetRequestSocketSend {
+    pub fn data(&self) -> &[u8] {
+        &self.data
+    }
+}
+
+#[derive(Clone)]
+pub enum NetRequestSocket {
     Subscribe,
     Unsubscribe,
-    Send(NetSocketRequestSend<'a>),
+    Send(NetRequestSocketSend),
 }
 
-pub enum NetRequestKind<'a> {
-    Socket(NetSocketRequest<'a>),
-    Grpc(GrpcRequest<'a>),
-    Http(NetHttpRequest<'a>),
+impl NetRequestSocket {
+    pub fn send(&self) -> Option<&NetRequestSocketSend> {
+        if let NetRequestSocket::Send(inner) = self {
+            Some(inner)
+        } else {
+            None
+        }
+    }
 }
 
-pub struct NetRequest<'a> {
-    pub transport_id: u32,
-    pub id: u32,
-    pub timeout: u32,
-    pub kind: NetRequestKind<'a>,
+#[derive(Clone)]
+pub enum NetRequestKind {
+    Socket(NetRequestSocket),
+    Grpc(NetRequestGrpc),
+    Http(NetRequestHttp),
+}
+#[wasm_bindgen]
+#[derive(Clone)]
+pub struct NetRequestWasm {
+    transport_id: u32,
+    id: u32,
+    timeout: u32,
+    kind: u8,
+    soket_send: Option<NetRequestSocketSend>,
+    grpc_unary: Option<NetRequestGrpcUnary>,
+    gprc_stream: Option<NetRequestGrpcStream>,
+    grpc_unsubscribe: Option<NetRequestGrpcUnsubscribe>,
+    http: Option<NetRequestHttp>,
+}
+#[wasm_bindgen]
+impl NetRequestWasm {
+    pub fn create(
+        transport_id: u32,
+        id: u32,
+        timeout: u32,
+        kind: u8,
+        soket_send: Option<NetRequestSocketSend>,
+        grpc_unary: Option<NetRequestGrpcUnary>,
+        gprc_stream: Option<NetRequestGrpcStream>,
+        grpc_unsubscribe: Option<NetRequestGrpcUnsubscribe>,
+        http: Option<NetRequestHttp>,
+    ) -> NetRequestWasm {
+        Self {
+            transport_id,
+            id,
+            timeout,
+            kind,
+            soket_send,
+            grpc_unary,
+            gprc_stream,
+            grpc_unsubscribe,
+            http,
+        }
+    }
+}
+impl NetRequestWasm {
+    /// Convert WASM-friendly struct to native NetRequest
+    pub fn to_native(&self) -> Result<NetRequest, NetResultStatus> {
+        // Determine the NetRequestKind based on self.kind
+        let kind = match self.kind {
+            1 => {
+                // Socket
+                let socket_send = self
+                    .soket_send
+                    .as_ref()
+                    .ok_or(NetResultStatus::InvalidRequestParameters)?;
+                NetRequestKind::Socket(NetRequestSocket::Send(socket_send.clone()))
+            }
+            2 => NetRequestKind::Socket(NetRequestSocket::Subscribe),
+            3 => NetRequestKind::Socket(NetRequestSocket::Unsubscribe),
+            4 => {
+                // Grpc Unary
+                let grpc_unary = self
+                    .grpc_unary
+                    .as_ref()
+                    .ok_or(NetResultStatus::InvalidRequestParameters)?;
+                NetRequestKind::Grpc(NetRequestGrpc::Unary(grpc_unary.clone()))
+            }
+            5 => {
+                // Grpc Stream
+                let grpc_stream = self
+                    .gprc_stream
+                    .as_ref()
+                    .ok_or(NetResultStatus::InvalidRequestParameters)?;
+                NetRequestKind::Grpc(NetRequestGrpc::Stream(grpc_stream.clone()))
+            }
+            6 => {
+                // Grpc Unsubscribe
+                let grpc_unsub = self
+                    .grpc_unsubscribe
+                    .as_ref()
+                    .ok_or(NetResultStatus::InvalidRequestParameters)?;
+                NetRequestKind::Grpc(NetRequestGrpc::Unsubscribe(grpc_unsub.clone()))
+            }
+            7 => {
+                // Http
+                let http = self
+                    .http
+                    .as_ref()
+                    .ok_or(NetResultStatus::InvalidRequestParameters)?;
+                NetRequestKind::Http(http.clone())
+            }
+            _ => return Err(NetResultStatus::InvalidRequestParameters),
+        };
+
+        Ok(NetRequest {
+            transport_id: self.transport_id,
+            id: self.id,
+            timeout: self.timeout,
+            kind,
+        })
+    }
 }
 
-impl<'a> NetRequest<'a> {
-    pub fn to_http_request(&'a self) -> Result<&'a NetHttpRequest<'a>, NetResultStatus> {
+#[derive(Clone)]
+pub struct NetRequest {
+    transport_id: u32,
+    id: u32,
+    timeout: u32,
+    kind: NetRequestKind,
+}
+
+impl NetRequest {
+    pub fn new(transport_id: u32, id: u32, timeout: u32, kind: NetRequestKind) -> Self {
+        Self {
+            transport_id,
+            id,
+            timeout,
+            kind,
+        }
+    }
+
+    pub fn transport_id(&self) -> u32 {
+        self.transport_id
+    }
+
+    pub fn id(&self) -> u32 {
+        self.id
+    }
+
+    pub fn timeout(&self) -> u32 {
+        self.timeout
+    }
+
+    pub fn kind(&self) -> &NetRequestKind {
+        &self.kind
+    }
+}
+
+impl NetRequest {
+    pub fn to_http_request(&self) -> Result<&NetRequestHttp, NetResultStatus> {
         match &self.kind {
             NetRequestKind::Http(http_request) => Ok(http_request),
             _ => Err(NetResultStatus::InvalidRequestParameters),
         }
     }
-    pub fn to_socket_request(&'a self) -> Result<&'a NetSocketRequest<'a>, NetResultStatus> {
+    pub fn to_socket_request(&self) -> Result<&NetRequestSocket, NetResultStatus> {
         match &self.kind {
             NetRequestKind::Socket(socket_request) => Ok(socket_request),
             _ => Err(NetResultStatus::InvalidRequestParameters),
         }
     }
 
-    pub fn to_grpc_request(&'a self) -> Result<&'a GrpcRequest<'a>, NetResultStatus> {
+    pub fn to_grpc_request(&self) -> Result<&NetRequestGrpc, NetResultStatus> {
         match &self.kind {
             NetRequestKind::Grpc(grpc_request) => Ok(grpc_request),
             _ => Err(NetResultStatus::InvalidRequestParameters),
         }
     }
-    pub fn to_protocol_config(&'a self, protocol: NetProtocol) -> Result<(), NetResultStatus> {
+    pub fn to_protocol_config(&self, protocol: NetProtocol) -> Result<(), NetResultStatus> {
         let _ = match protocol {
             NetProtocol::Http => self.to_http_request().map(|_| ())?,
             NetProtocol::Grpc => self.to_grpc_request().map(|_| ())?,
@@ -92,237 +312,24 @@ impl<'a> NetRequest<'a> {
         Ok(())
     }
 }
-
-#[repr(C)]
-pub struct BytesRefC {
-    pub ptr: *const u8,
-    pub len: u32,
-}
-#[repr(C)]
-pub struct NetGrpcRequestUnaryC {
-    pub method: *const c_char,
-    pub data: BytesRefC,
-}
-#[repr(C)]
-pub struct NetGrpcRequestStreamC {
-    pub method: *const c_char,
-    pub data: BytesRefC,
-}
-#[repr(C)]
-pub struct NetGrpcRequestUnsubscribeC {
-    pub id: i32,
-}
-#[repr(C)]
-pub struct NetHttpRequestC {
-    pub method: *const c_char,
-    pub url: *const c_char,
-    pub body: BytesRefC,
-    pub headers: *const NetHttpHeaderC,
-    pub headers_len: u8,
-    pub encoding: u8,
-}
-#[repr(C)]
-pub struct NetSocketRequestSendC {
-    pub data: BytesRefC,
-}
-
-#[repr(C)]
-pub union NetGrpcRequestUnionC {
-    pub unary: ManuallyDrop<*const NetGrpcRequestUnaryC>,
-    pub stream: ManuallyDrop<*const NetGrpcRequestStreamC>,
-    pub unsubscribe: ManuallyDrop<*const NetGrpcRequestUnsubscribeC>,
-}
-
-#[repr(C)]
-pub union NetSocketRequestUnionC {
-    pub send: ManuallyDrop<*const NetSocketRequestSendC>,
-}
-#[repr(C)]
-pub struct NetGrpcRequestC {
-    pub tag: u8,
-    pub payload: NetGrpcRequestUnionC,
-}
-
-#[repr(C)]
-pub struct NetSocketRequestC {
-    pub tag: u8,
-    pub payload: NetSocketRequestUnionC,
-}
-#[repr(C)]
-pub union NetRequestKindUnionC {
-    pub socket: ManuallyDrop<*const NetSocketRequestC>,
-    pub grpc: ManuallyDrop<*const NetGrpcRequestC>,
-    pub http: ManuallyDrop<*const NetHttpRequestC>,
-}
-#[repr(C)]
-pub struct NetRequestKindC {
-    pub tag: u8,
-    pub payload: NetRequestKindUnionC,
-}
-#[repr(C)]
-pub struct NetRequestC {
-    pub transport_id: u32,
-    pub id: u32,
-    pub timeout: u32,
-    pub kind: NetRequestKindC,
-}
-
-impl BytesRefC {
-    pub unsafe fn free_memory(&self) {
-        if self.ptr.is_null() || self.len == 0 {
-            return;
-        }
-
-        // Reconstruct the Vec<u8> so Rust can drop it
-        let _ = unsafe {
-            Vec::from_raw_parts(self.ptr as *mut u8, self.len as usize, self.len as usize)
-        };
+impl NetRequestHttp {
+    pub fn method(&self) -> &str {
+        &self.method
     }
-}
 
-unsafe fn bytes_from_ref<'a>(b: &BytesRefC) -> &'a [u8] {
-    unsafe { slice::from_raw_parts(b.ptr, b.len as usize) }
-}
-impl<'a> NetRequest<'a> {
-    pub unsafe fn from_c(c: &NetRequestC) -> Result<Self, NetResultStatus> {
-        Ok(NetRequest {
-            transport_id: c.transport_id,
-            id: c.id,
-            timeout: c.timeout,
-            kind: match c.kind.tag {
-                1 => {
-                    let pointer = unsafe { c.kind.payload.socket.as_ref() };
-                    match pointer {
-                        Some(u) => NetRequestKind::Socket(unsafe { NetSocketRequest::from_c(u) }?),
-                        None => return Err(NetResultStatus::InvalidRequestParameters),
-                    }
-                }
-                2 => {
-                    let pointer = unsafe { c.kind.payload.grpc.as_ref() };
-                    match pointer {
-                        Some(u) => NetRequestKind::Grpc(unsafe { GrpcRequest::from_c(u) }?),
-                        None => return Err(NetResultStatus::InvalidRequestParameters),
-                    }
-                }
-                3 => {
-                    let pointer = unsafe { c.kind.payload.http.as_ref() };
-                    match pointer {
-                        Some(u) => NetRequestKind::Http(unsafe { NetHttpRequest::from_c(u) }?),
-                        None => return Err(NetResultStatus::InvalidRequestParameters),
-                    }
-                }
-                _ => return Err(NetResultStatus::InvalidRequestParameters),
-            },
-        })
+    pub fn url(&self) -> &str {
+        &self.url
     }
-}
-impl<'a> GrpcRequest<'a> {
-    pub unsafe fn from_c(c: &NetGrpcRequestC) -> Result<Self, NetResultStatus> {
-        Ok(match c.tag {
-            1 => {
-                let pointer = unsafe { c.payload.unary.as_ref() };
-                match pointer {
-                    Some(u) => {
-                        if u.method.is_null() {
-                            return Err(NetResultStatus::InvalidRequestParameters);
-                        }
-                        GrpcRequest::Unary(NetGrpcRequestUnary {
-                            method: unsafe { Utils::cstr_to_str(u.method as *const u8) },
-                            data: unsafe { bytes_from_ref(&u.data) },
-                        })
-                    }
-                    None => return Err(NetResultStatus::InvalidRequestParameters),
-                }
-            }
-            2 => {
-                let pointer = unsafe { c.payload.stream.as_ref() };
-                match pointer {
-                    Some(s) => {
-                        if s.method.is_null() {
-                            return Err(NetResultStatus::InvalidRequestParameters);
-                        }
-                        GrpcRequest::Stream(NetGrpcRequestStream {
-                            method: unsafe { Utils::cstr_to_str(s.method as *const u8) },
-                            data: unsafe { bytes_from_ref(&s.data) },
-                        })
-                    }
-                    None => return Err(NetResultStatus::InvalidRequestParameters),
-                }
-            }
-            3 => {
-                let pointer = unsafe { c.payload.unsubscribe.as_ref() };
-                match pointer {
-                    Some(u) => GrpcRequest::Unsubscribe(NetGrpcRequestUnsubscribe { id: u.id }),
-                    None => return Err(NetResultStatus::InvalidRequestParameters),
-                }
-            }
 
-            _ => return Err(NetResultStatus::InvalidRequestParameters),
-        })
+    pub fn body(&self) -> Option<&[u8]> {
+        self.body.as_deref()
     }
-}
-impl<'a> NetSocketRequest<'a> {
-    pub unsafe fn from_c(c: &NetSocketRequestC) -> Result<Self, NetResultStatus> {
-        Ok(match c.tag {
-            1 => {
-                let pointer = unsafe { c.payload.send.as_ref() };
-                match pointer {
-                    Some(u) => NetSocketRequest::Send(NetSocketRequestSend {
-                        data: unsafe { bytes_from_ref(&u.data) },
-                    }),
-                    None => return Err(NetResultStatus::InvalidRequestParameters),
-                }
-            }
-            2 => NetSocketRequest::Subscribe,
-            3 => NetSocketRequest::Unsubscribe,
-            _ => return Err(NetResultStatus::InvalidRequestParameters),
-        })
-    }
-}
-impl<'a> NetHttpHeaderRef<'a> {
-    fn from_c(c: &NetHttpHeaderC) -> Result<Self, NetResultStatus> {
-        if c.key.is_null() || c.value.is_null() {
-            return Err(NetResultStatus::InvalidConfigParameters);
-        }
-        Ok(Self {
-            key: unsafe { Utils::cstr_to_str(c.key as *const u8) },
-            value: unsafe { Utils::cstr_to_str(c.value as *const u8) },
-        })
-    }
-}
 
-impl<'a> NetHttpRequest<'a> {
-    pub unsafe fn from_c(c: &NetHttpRequestC) -> Result<Self, NetResultStatus> {
-        if c.method.is_null() || c.url.is_null() {
-            return Err(NetResultStatus::InvalidRequestParameters);
-        }
-        let headers = if c.headers.is_null() {
-            if c.headers_len != 0 {
-                return Err(NetResultStatus::InvalidRequestParameters);
-            }
-            None
-        } else {
-            Some(unsafe {
-                std::slice::from_raw_parts(c.headers, c.headers_len.into())
-                    .iter()
-                    .map(NetHttpHeaderRef::from_c) // don't use `?` here
-                    .collect::<Result<Vec<_>, _>>()?
-            })
-        };
-        Ok(NetHttpRequest {
-            method: unsafe { Utils::cstr_to_str(c.method as *const u8) },
-            url: unsafe { Utils::cstr_to_str(c.url as *const u8) },
-            body: match c.body.len {
-                0 => None,
-                _ => Some(unsafe { bytes_from_ref(&c.body) }),
-            },
-            encoding: match c.encoding {
-                1 => StreamEncoding::Json,
-                2 => StreamEncoding::Raw,
-                3 => StreamEncoding::CborJson,
-                _ => return Err(NetResultStatus::InvalidRequestParameters),
-            },
-            headers: headers,
-        })
+    pub fn headers(&self) -> Option<&[NetHttpHeader]> {
+        self.headers.as_deref()
+    }
+
+    pub fn encoding(&self) -> StreamEncoding {
+        self.encoding
     }
 }

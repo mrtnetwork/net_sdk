@@ -6,30 +6,21 @@ use std::{
     },
 };
 
-use arti_client::DataStream;
-use log::debug;
-use tokio::{
-    net::TcpStream,
-    sync::{
-        Mutex,
-        broadcast::{self},
-    },
-};
-use tokio_rustls::client::TlsStream;
+use tokio::sync::{Mutex, broadcast};
+use wasm_bindgen_futures::spawn_local;
 
 use crate::{
     client::{
-        grpc::native::GrpcClient,
-        native::{GrpcStreamHandle, IGrpcClient},
+        grpc::wasm::GrpcClient,
+        wasm::{GrpcStreamHandle, IGrpcClient},
     },
-    transport::native::{IGrpcTransport, Transport},
+    transport::wasm::{IGrpcTransport, Transport},
     types::{
         DartCallback,
-        config::{NetConfig, NetConfigRequest, NetMode, NetProtocol},
+        config::{NetConfig, NetConfigRequest, NetProtocol},
         error::NetResultStatus,
-        native::request::{
-            NetRequest, NetRequestGrpc, NetRequestGrpcStream, NetRequestGrpcUnary,
-            NetRequestGrpcUnsubscribe,
+        request::{
+            NetRequest, NetRequestGrpcStream, NetRequestGrpcUnary, NetRequestGrpcUnsubscribe,
         },
         response::{
             NetResponseGrpc, NetResponseGrpcSubscribe, NetResponseGrpcUnary,
@@ -46,7 +37,7 @@ pub struct GrpcTransport {
     _transport_id: u32,
     next_stream_id: AtomicI32,
 }
-#[async_trait::async_trait]
+#[async_trait::async_trait(?Send)]
 impl Transport for GrpcTransport {
     fn create(
         config: NetConfigRequest,
@@ -54,24 +45,9 @@ impl Transport for GrpcTransport {
         transport_id: u32,
     ) -> Result<GrpcTransport, NetResultStatus> {
         let config: NetConfig = config.to_protocol_config(NetProtocol::Grpc)?;
-        let stream: Box<dyn IGrpcClient> = match config.protocol {
-            NetProtocol::Grpc => match (config.addr.is_tls, &config.mode) {
-                (true, NetMode::Tor) => {
-                    Box::new(GrpcClient::<TlsStream<DataStream>>::default(config)?)
-                }
-
-                (true, NetMode::Clearnet) => {
-                    Box::new(GrpcClient::<TlsStream<TcpStream>>::default(config)?)
-                }
-
-                (false, NetMode::Tor) => Box::new(GrpcClient::<DataStream>::default(config)?),
-
-                (false, NetMode::Clearnet) => Box::new(GrpcClient::<TcpStream>::default(config)?),
-            },
-            _ => return Err(NetResultStatus::InvalidConfigParameters),
-        };
+        let client = GrpcClient::default(config)?;
         Ok(Self {
-            stream,
+            stream: Box::new(client),
             callback,
             listeners: Arc::new(Mutex::new(HashMap::new())),
             _transport_id: transport_id,
@@ -79,15 +55,12 @@ impl Transport for GrpcTransport {
         })
     }
 
-    async fn do_request<'a>(
-        &self,
-        request: NetRequest<'a>,
-    ) -> Result<NetResponseKind, NetResultStatus> {
+    async fn do_request(&self, request: NetRequest) -> Result<NetResponseKind, NetResultStatus> {
         let socket_requset = request.to_grpc_request()?;
         let kind = match socket_requset {
-            NetRequestGrpc::Stream(e) => self.stream(e).await?,
-            NetRequestGrpc::Unary(e) => self.unary(e).await?,
-            NetRequestGrpc::Unsubscribe(e) => self.unsubscribe(e).await?,
+            crate::types::request::NetRequestGrpc::Stream(e) => self.stream(e).await?,
+            crate::types::request::NetRequestGrpc::Unary(e) => self.unary(e).await?,
+            crate::types::request::NetRequestGrpc::Unsubscribe(e) => self.unsubscribe(e).await?,
         };
         Ok(kind)
     }
@@ -110,13 +83,10 @@ impl Transport for GrpcTransport {
         self.stream.get_config()
     }
 }
-#[async_trait::async_trait]
-impl<'a> IGrpcTransport<'a> for GrpcTransport {
-    async fn unary(
-        &self,
-        data: &NetRequestGrpcUnary<'a>,
-    ) -> Result<NetResponseKind, NetResultStatus> {
-        let data = self.stream.unary(&data.data, &data.method).await?;
+#[async_trait::async_trait(?Send)]
+impl IGrpcTransport for GrpcTransport {
+    async fn unary(&self, data: &NetRequestGrpcUnary) -> Result<NetResponseKind, NetResultStatus> {
+        let data = self.stream.unary(data.data(), data.method()).await?;
         Ok(NetResponseKind::Grpc(NetResponseGrpc::Unary(
             NetResponseGrpcUnary::new(data),
         )))
@@ -124,14 +94,14 @@ impl<'a> IGrpcTransport<'a> for GrpcTransport {
 
     async fn stream(
         &self,
-        data: &NetRequestGrpcStream<'a>,
+        data: &NetRequestGrpcStream,
     ) -> Result<NetResponseKind, NetResultStatus> {
-        let handle = self.stream.stream(&data.data, &data.method).await?;
+        let handle = self.stream.stream(data.data(), data.method()).await?;
         let id = self.next_stream_id.fetch_add(1, Ordering::Relaxed);
         let callback = self.callback.clone();
         let mut rx = handle.rx.resubscribe();
         let listeners = Arc::clone(&self.listeners);
-        tokio::spawn(async move {
+        spawn_local(async move {
             loop {
                 match rx.recv().await {
                     Ok(msg) => match msg {
@@ -182,16 +152,15 @@ impl<'a> IGrpcTransport<'a> for GrpcTransport {
         &self,
         data: &NetRequestGrpcUnsubscribe,
     ) -> Result<NetResponseKind, NetResultStatus> {
-        debug!("Grpc unsubscribe.");
         let mut listeners = self.listeners.lock().await;
-        let handler = listeners.remove(&data.id);
+        let handler = listeners.remove(&data.id());
         let _ = match handler {
             Some(e) => e.cancel(),
             None => (),
         };
         // 4. Return ID to caller
         Ok(NetResponseKind::Grpc(NetResponseGrpc::Unsubscribe(
-            NetResponseGrpcUnsubscribe::new(data.id),
+            NetResponseGrpcUnsubscribe::new(data.id()),
         )))
     }
 }

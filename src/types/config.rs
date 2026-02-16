@@ -1,4 +1,5 @@
-use libc::c_char;
+#[cfg(target_arch = "wasm32")]
+use wasm_bindgen::prelude::*;
 
 use crate::{
     types::{AddressInfo, error::NetResultStatus},
@@ -11,11 +12,12 @@ pub enum NetMode {
     Clearnet = 2,
 }
 #[repr(u8)]
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum NetHttpProtocol {
     Http1 = 1,
     Http2 = 2,
 }
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen)]
 #[repr(u8)]
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum NetProtocol {
@@ -27,40 +29,64 @@ pub enum NetProtocol {
 
 #[repr(u8)]
 #[derive(Clone, Copy, Debug)]
-pub enum TlsMode {
+pub enum NetTlsMode {
     Safe = 1,
     Dangerous = 2,
 }
 
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen)]
 #[derive(Clone, Debug)]
 pub struct NetHttpHeader {
-    pub key: String,
-    pub value: String,
+    key: String,
+    value: String,
 }
 
-// #[derive(Clone, Debug)]
-// pub struct NetHttpDigestAuth {
-//     pub key: String,
-//     pub value: String,
-// }
-#[derive(Clone, Debug)]
-pub struct NetHttpConfig {
-    pub headers: Vec<NetHttpHeader>,
-    pub protocol: Option<NetHttpProtocol>,
-    pub global_client: bool,
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen)]
+impl NetHttpHeader {
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen)]
+    pub fn create(key: String, value: String) -> Self {
+        Self { key, value }
+    }
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen)]
+    pub fn key(&self) -> String {
+        self.key.clone()
+    }
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen)]
+    pub fn value(&self) -> String {
+        self.value.clone()
+    }
+}
+
+impl NetHttpHeader {
+    pub fn new(key: String, value: String) -> Self {
+        Self { key, value }
+    }
+    pub fn key_ref(&self) -> &str {
+        &self.key
+    }
+
+    pub fn value_ref(&self) -> &str {
+        &self.value
+    }
 }
 #[derive(Clone, Debug)]
-pub struct NetTorClientConfig {
+pub struct NetConfigHttp {
+    pub headers: Vec<NetHttpHeader>,
+    pub protocol: Option<NetHttpProtocol>,
+}
+#[derive(Clone, Debug)]
+pub struct NetConfigTor {
     pub cache_dir: String,
     pub state_dir: String,
 }
-pub struct NetRequestConfig {
+#[derive()]
+pub struct NetConfigRequest {
     pub url: String,
     pub mode: NetMode,
     pub protocol: NetProtocol,
-    pub http: NetHttpConfig,
-    pub tls_mode: TlsMode,
-    pub tor_config: Option<NetTorClientConfig>,
+    pub http: NetConfigHttp,
+    pub tls_mode: NetTlsMode,
+    // pub tor_config: Option<NetConfigTor>,
     pub encoding: StreamEncoding,
 }
 
@@ -68,10 +94,10 @@ pub struct NetRequestConfig {
 pub struct NetConfig {
     pub addr: AddressInfo,
     pub mode: NetMode,
-    pub http: NetHttpConfig,
+    pub http: NetConfigHttp,
     pub protocol: NetProtocol,
-    pub tls_mode: TlsMode,
-    pub tor_config: Option<NetTorClientConfig>,
+    pub tls_mode: NetTlsMode,
+    // pub tor_config: Option<NetConfigTor>,
     pub encoding: StreamEncoding,
 }
 impl NetConfig {
@@ -82,23 +108,21 @@ impl NetConfig {
             http: self.http.clone(),
             protocol: self.protocol,
             tls_mode: self.tls_mode,
-            tor_config: self.tor_config.clone(),
             encoding: self.encoding.clone(),
         }
     }
 }
 
-impl Default for NetHttpConfig {
-    fn default() -> NetHttpConfig {
+impl Default for NetConfigHttp {
+    fn default() -> NetConfigHttp {
         Self {
             headers: Vec::new(),
             protocol: None,
-            global_client: false,
         }
     }
 }
 
-impl NetRequestConfig {
+impl NetConfigRequest {
     fn to_protocol_address(&self) -> Result<AddressInfo, NetResultStatus> {
         match self.protocol {
             NetProtocol::Http => Utils::parse_http_url(&self.url),
@@ -115,7 +139,6 @@ impl NetRequestConfig {
             protocol: self.protocol,
             mode: self.mode,
             tls_mode: self.tls_mode,
-            tor_config: self.tor_config.clone(),
             encoding: self.encoding,
         })
     }
@@ -127,153 +150,62 @@ impl NetRequestConfig {
     }
 }
 
-/// C
-
-#[repr(C)]
-pub struct NetHttpHeaderC {
-    pub key: *const c_char,
-    pub value: *const c_char,
-}
-#[repr(C)]
-pub struct NetHttpDigestAuthC {
-    pub key: *const c_char,
-    pub value: *const c_char,
-}
-#[repr(C)]
-pub struct NetHttpConfigC {
-    pub headers: *const NetHttpHeaderC,
-    pub headers_len: u8,
-
-    pub protocol: u8,
-    pub global_client: bool, // nullable
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen)]
+#[derive(Clone, Debug)]
+pub struct NetConfigHttpWasm {
+    headers: Vec<NetHttpHeader>,
 }
 
-#[repr(C)]
-pub struct NetTorClientConfigC {
-    pub cache_dir: *const c_char,
-    pub state_dir: *const c_char,
-}
-
-#[repr(C)]
-pub struct NetRequestConfigC {
-    pub url: *const c_char,
-    pub mode: u8,
-    pub protocol: u8,
-    pub http: *const NetHttpConfigC,
-    pub tls_mode: u8,
-    pub tor_config: *const NetTorClientConfigC,
-    pub stream_encoding: u8,
-}
-impl TryFrom<&NetHttpHeaderC> for NetHttpHeader {
-    type Error = NetResultStatus;
-    fn try_from(c: &NetHttpHeaderC) -> Result<Self, NetResultStatus> {
-        if c.key.is_null() || c.value.is_null() {
-            return Err(NetResultStatus::InvalidConfigParameters);
-        }
-        Ok(Self {
-            key: unsafe { Utils::cstr_to_string(c.key as *const u8) },
-            value: unsafe { Utils::cstr_to_string(c.value as *const u8) },
-        })
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen)]
+impl NetConfigHttpWasm {
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen)]
+    pub fn create(headers: Vec<NetHttpHeader>) -> Self {
+        Self { headers }
     }
 }
 
-impl TryFrom<&NetTorClientConfigC> for NetTorClientConfig {
-    type Error = NetResultStatus;
-    fn try_from(c: &NetTorClientConfigC) -> Result<Self, NetResultStatus> {
-        if c.cache_dir.is_null() || c.state_dir.is_null() {
-            return Err(NetResultStatus::InvalidConfigParameters);
-        }
-        Ok(Self {
-            cache_dir: unsafe { Utils::cstr_to_string(c.cache_dir as *const u8) },
-            state_dir: unsafe { Utils::cstr_to_string(c.state_dir as *const u8) },
-        })
-    }
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen)]
+#[derive(Clone, Debug)]
+pub struct NetConfigRequestWasm {
+    url: String,
+    protocol: NetProtocol,
+    http: NetConfigHttpWasm,
+    encoding: StreamEncoding,
 }
-// impl TryFrom<&NetHttpDigestAuthC> for NetHttpDigestAuth {
-//     type Error = NetResultStatus;
-//     fn try_from(c: &NetHttpDigestAuthC) -> Result<Self, NetResultStatus> {
-//         if c.key.is_null() || c.value.is_null() {
-//             return Err(NetResultStatus::InvalidConfigParameters);
-//         }
-//         Ok(Self {
-//             key: unsafe { Utils::cstr_to_string(c.key as *const u8) },
-//             value: unsafe { Utils::cstr_to_string(c.value as *const u8) },
-//         })
-//     }
-// }
-impl TryFrom<&NetHttpConfigC> for NetHttpConfig {
-    type Error = NetResultStatus;
-    fn try_from(c: &NetHttpConfigC) -> Result<Self, NetResultStatus> {
-        let headers = if c.headers.is_null() {
-            Vec::new()
-        } else {
-            unsafe {
-                std::slice::from_raw_parts(c.headers, c.headers_len.into())
-                    .iter()
-                    .map(NetHttpHeader::try_from) // don't use `?` here
-                    .collect::<Result<Vec<_>, _>>()? //
-            }
-        };
 
-        let protocol = match c.protocol {
-            0 => None,
-            1 => Some(NetHttpProtocol::Http1),
-            2 => Some(NetHttpProtocol::Http2),
-            _ => return Err(NetResultStatus::InvalidConfigParameters),
-        };
-        Ok(Self {
-            headers,
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen)]
+impl NetConfigRequestWasm {
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen)]
+    pub fn create(
+        url: String,
+        protocol: NetProtocol,
+        http: NetConfigHttpWasm,
+        encoding: StreamEncoding,
+    ) -> Self {
+        Self {
+            url,
             protocol,
-            global_client: c.global_client,
-        })
+            http,
+            encoding,
+        }
     }
 }
-impl TryFrom<&NetRequestConfigC> for NetRequestConfig {
-    type Error = NetResultStatus;
-    fn try_from(c: &NetRequestConfigC) -> Result<Self, NetResultStatus> {
-        let http = unsafe {
-            c.http
-                .as_ref()
-                .map(NetHttpConfig::try_from)
-                .transpose()?
-                .ok_or(NetResultStatus::InvalidConfigParameters)?
+// Rust-side method to convert to NetConfig
+impl NetConfigRequestWasm {
+    pub fn to_config(&self) -> Result<NetConfigRequest, NetResultStatus> {
+        // convert NetConfigHttpWasm → NetConfigHttp
+        let http = NetConfigHttp {
+            headers: self.http.headers.clone(),
+            protocol: None, // map if needed
         };
-        let tor_config = unsafe {
-            c.tor_config
-                .as_ref()
-                .map(NetTorClientConfig::try_from)
-                .transpose()?
-        };
-        if c.url.is_null() {
-            return Err(NetResultStatus::InvalidConfigParameters);
-        }
-        Ok(Self {
-            url: unsafe { Utils::cstr_to_string(c.url as *const u8) },
-            tor_config: tor_config,
-            mode: match c.mode {
-                1 => NetMode::Tor,
-                2 => NetMode::Clearnet,
-                _ => return Err(NetResultStatus::InvalidConfigParameters),
-            },
-            protocol: match c.protocol {
-                1 => NetProtocol::Http,
-                2 => NetProtocol::Grpc,
-                3 => NetProtocol::WebSocket,
-                4 => NetProtocol::Socket,
-                _ => return Err(NetResultStatus::InvalidConfigParameters),
-            },
-            tls_mode: match c.tls_mode {
-                1 => TlsMode::Safe,
-                2 => TlsMode::Dangerous,
-                _ => return Err(NetResultStatus::InvalidConfigParameters),
-            },
-            encoding: match c.stream_encoding {
-                1 => StreamEncoding::Json,
-                2 => StreamEncoding::Raw,
-                3 => StreamEncoding::CborJson,
-                _ => return Err(NetResultStatus::InvalidConfigParameters),
-            },
+
+        Ok(NetConfigRequest {
+            url: self.url.clone(),
+            mode: NetMode::Clearnet,
+            protocol: self.protocol,
+            tls_mode: NetTlsMode::Safe,
             http,
+            encoding: self.encoding,
         })
     }
 }

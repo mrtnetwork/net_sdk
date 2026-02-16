@@ -1,9 +1,12 @@
+use serde::{Deserialize, Serialize};
 use serde_cbor;
 use serde_json::Value;
 use std::str;
-
+#[cfg(target_arch = "wasm32")]
+use wasm_bindgen::prelude::*;
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen)]
 #[repr(u8)]
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub enum StreamEncoding {
     Json = 1,
     Raw = 2,
