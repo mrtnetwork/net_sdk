@@ -24,11 +24,11 @@ where
             .writer
             .write_all(&data)
             .await
-            .map_err(|e| NetResultStatus::ConnectionError);
+            .map_err(|_| NetResultStatus::ConnectionError);
         self.writer
             .flush()
             .await
-            .map_err(|e| NetResultStatus::ConnectionError)
+            .map_err(|_| NetResultStatus::ConnectionError)
     }
     async fn close(&mut self) {
         let _ = self.writer.shutdown().await;
