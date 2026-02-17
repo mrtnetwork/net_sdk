@@ -88,6 +88,7 @@ pub struct NetRequestHttp {
     body: Option<Vec<u8>>,
     headers: Option<Vec<NetHttpHeader>>,
     encoding: StreamEncoding,
+    retry: NetHttpRetryConfig,
 }
 #[wasm_bindgen]
 impl NetRequestHttp {
@@ -98,6 +99,7 @@ impl NetRequestHttp {
         body: Option<Vec<u8>>,
         headers: Option<Vec<NetHttpHeader>>,
         encoding: StreamEncoding,
+        retry: NetHttpRetryConfig,
     ) -> Self {
         Self {
             method,
@@ -105,6 +107,7 @@ impl NetRequestHttp {
             body,
             headers,
             encoding,
+            retry,
         }
     }
 }
@@ -124,6 +127,35 @@ impl NetRequestSocketSend {
 impl NetRequestSocketSend {
     pub fn data(&self) -> &[u8] {
         &self.data
+    }
+}
+#[wasm_bindgen]
+#[derive(Clone)]
+pub struct NetHttpRetryConfig {
+    max_retries: u8,
+    retry_status: Vec<u16>,
+    retry_delay: u32,
+}
+#[wasm_bindgen]
+impl NetHttpRetryConfig {
+    #[wasm_bindgen]
+    pub fn create(max_retries: u8, retry_status: Vec<u16>, retry_delay: u32) -> Self {
+        Self {
+            max_retries,
+            retry_status,
+            retry_delay,
+        }
+    }
+}
+impl NetHttpRetryConfig {
+    pub fn max_retries(&self) -> u8 {
+        return self.max_retries;
+    }
+    pub fn retry_status(&self) -> &Vec<u16> {
+        return &self.retry_status;
+    }
+    pub fn retry_delay(&self) -> u32 {
+        return self.retry_delay;
     }
 }
 
@@ -331,5 +363,8 @@ impl NetRequestHttp {
 
     pub fn encoding(&self) -> StreamEncoding {
         self.encoding
+    }
+    pub fn retry_config(&self) -> &NetHttpRetryConfig {
+        &self.retry
     }
 }

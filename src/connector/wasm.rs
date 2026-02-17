@@ -24,11 +24,6 @@ use crate::{
     },
 };
 
-#[wasm_bindgen]
-extern "C" {
-    fn debug_print(s: String) -> bool;
-}
-
 struct SimpleLogger;
 
 static LOGGER: SimpleLogger = SimpleLogger;
@@ -46,7 +41,6 @@ impl log::Log for SimpleLogger {
                 record.target(),
                 record.args()
             )));
-            // debug_print();
         }
     }
 

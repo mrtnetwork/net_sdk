@@ -131,7 +131,6 @@ impl TryFrom<&NetConfigRequestC> for NetConfigRequest {
             encoding: match c.stream_encoding {
                 1 => StreamEncoding::Json,
                 2 => StreamEncoding::Raw,
-                3 => StreamEncoding::CborJson,
                 _ => return Err(NetResultStatus::InvalidConfigParameters),
             },
             http,
@@ -403,7 +402,6 @@ impl<'a> NetRequestHttp<'a> {
             encoding: match c.encoding {
                 1 => StreamEncoding::Json,
                 2 => StreamEncoding::Raw,
-                3 => StreamEncoding::CborJson,
                 _ => return Err(NetResultStatus::InvalidRequestParameters),
             },
             headers: headers,

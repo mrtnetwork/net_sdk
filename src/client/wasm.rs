@@ -4,6 +4,7 @@ use crate::{
     types::{
         config::{NetConfig, NetHttpHeader},
         error::NetResultStatus,
+        request::NetHttpRetryConfig,
         response::NetResponseHttp,
     },
     utils::buffer::StreamEncoding,
@@ -57,6 +58,7 @@ pub trait IHttpClient: IClient + Send + Sync {
         body: Option<&[u8]>,
         headers: Option<&[NetHttpHeader]>,
         encoding: StreamEncoding,
+        retry: &NetHttpRetryConfig,
     ) -> Result<NetResponseHttp, NetResultStatus>;
 
     async fn close(&self);

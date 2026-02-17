@@ -46,7 +46,6 @@ impl Transport for HttpTransport {
 #[async_trait::async_trait(?Send)]
 impl IHttpTransport for HttpTransport {
     async fn send(&self, request: &NetRequestHttp) -> Result<NetResponseKind, NetResultStatus> {
-        // self.get_config().e
         let result = self
             .client
             .send(
@@ -55,6 +54,7 @@ impl IHttpTransport for HttpTransport {
                 request.body(),
                 request.headers(),
                 request.encoding(),
+                request.retry_config(),
             )
             .await?;
         Ok(NetResponseKind::Http(result))

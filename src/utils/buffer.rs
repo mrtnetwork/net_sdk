@@ -1,16 +1,13 @@
-use serde::{Deserialize, Serialize};
-use serde_cbor;
 use serde_json::Value;
 use std::str;
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen)]
 #[repr(u8)]
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy)]
 pub enum StreamEncoding {
     Json = 1,
     Raw = 2,
-    CborJson = 3,
 }
 
 pub struct StreamBuffer {
@@ -48,18 +45,6 @@ impl StreamBuffer {
             StreamEncoding::Raw => Some(buf),
 
             StreamEncoding::Json => self.is_json(buf),
-
-            StreamEncoding::CborJson => {
-                if let Some(json_bytes) = self.is_json(buf) {
-                    // convert JSON string to CBOR bytes
-                    let s = std::str::from_utf8(&json_bytes).ok()?;
-                    let v: Value = serde_json::from_str(s).ok()?;
-                    let cbor_bytes = serde_cbor::to_vec(&v).ok()?;
-                    Some(cbor_bytes)
-                } else {
-                    None
-                }
-            }
         }
     }
 
@@ -73,18 +58,6 @@ impl StreamBuffer {
                 if let Ok(s) = std::str::from_utf8(&buf) {
                     if serde_json::from_str::<Value>(s).is_ok() {
                         return (buf, encoding);
-                    }
-                }
-                // fallback: raw bytes
-                (buf, StreamEncoding::Raw)
-            }
-
-            StreamEncoding::CborJson => {
-                if let Ok(s) = std::str::from_utf8(&buf) {
-                    if let Ok(v) = serde_json::from_str::<Value>(s) {
-                        if let Ok(cbor_bytes) = serde_cbor::to_vec(&v) {
-                            return (cbor_bytes, encoding);
-                        }
                     }
                 }
                 // fallback: raw bytes
