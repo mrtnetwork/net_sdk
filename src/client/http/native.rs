@@ -10,7 +10,6 @@ use crate::{
         native::request::{NetHttpHeaderRef, NetHttpRetryConfig},
         response::NetResponseHttp,
     },
-    utils::buffer::{StreamBuffer, StreamEncoding},
 };
 use async_trait::async_trait;
 use bytes::Bytes;
@@ -257,15 +256,14 @@ where
         method: &'a str,
         body: Option<&'a [u8]>,
         headers: Option<&Vec<NetHttpHeaderRef<'a>>>,
-        encoding: StreamEncoding,
         retry_config: &NetHttpRetryConfig<'a>,
     ) -> Result<NetResponseHttp, NetResultStatus> {
         let method = Method::from_bytes(method.as_bytes()).map_err(|e| {
             debug!("Http invalid method name: {:?}", e);
             NetResultStatus::InvalidRequestParameters
         })?;
-        self.request(method, url, body, headers, encoding, retry_config)
-            .await
+        let result = self.request(method, url, body, headers, retry_config).await;
+        result
     }
     async fn close(&self) {
         let old_sender = self.sender.lock().await.take();
@@ -284,7 +282,6 @@ where
         url: &'a str,
         body: Option<&'a [u8]>,
         headers: Option<&Vec<NetHttpHeaderRef<'a>>>,
-        encoding: StreamEncoding,
         retry_config: &NetHttpRetryConfig<'a>,
     ) -> Result<NetResponseHttp, NetResultStatus> {
         self.conneect_inner().await?;
@@ -309,6 +306,7 @@ where
                 builder
             }
         };
+
         let body = match body {
             Some(b) => Full::new(Bytes::from(b.to_vec())),
             None => Full::new(Bytes::new()),
@@ -341,7 +339,6 @@ where
             match result {
                 Ok(resp) => {
                     let status = resp.status().as_u16();
-
                     if retry_config.retry_status.contains(&status)
                         && attempt < retry_config.max_retries
                     {
@@ -355,7 +352,7 @@ where
                         continue;
                     }
 
-                    return HttpClient::<T, E>::read_response(resp, encoding).await;
+                    return HttpClient::<T, E>::read_response(resp).await;
                 }
 
                 Err(_) => {
@@ -379,25 +376,15 @@ where
         Err(NetResultStatus::ConnectionError)
     }
 
-    async fn read_response(
-        resp: Response<Incoming>,
-        encoding: StreamEncoding,
-    ) -> Result<NetResponseHttp, NetResultStatus> {
+    async fn read_response(resp: Response<Incoming>) -> Result<NetResponseHttp, NetResultStatus> {
         let status_code = resp.status().as_u16();
-        let is_success = (200..300).contains(&status_code);
-        // extract headers BEFORE consuming resp
         let headers: Vec<NetHttpHeader> = resp
             .headers()
             .iter()
             .map(|(k, v)| NetHttpHeader::new(k.to_string(), v.to_str().unwrap().to_string()))
             .collect();
         let body = HttpClient::<T, E>::read_body(resp.into_body()).await?;
-        let (body, encoding) = match is_success {
-            true => StreamBuffer::try_current_buffer(body, encoding),
-            false => (body, StreamEncoding::Raw),
-        };
-        // let headers = resp.headers()
-        Ok(NetResponseHttp::new(status_code, body, headers, encoding))
+        Ok(NetResponseHttp::new(status_code, body, headers))
     }
     async fn read_body(mut body: Incoming) -> Result<Vec<u8>, NetResultStatus> {
         let mut out = Vec::new();
@@ -410,7 +397,6 @@ where
                 out.extend_from_slice(data);
             }
         }
-
         Ok(out)
     }
 }

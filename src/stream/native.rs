@@ -49,8 +49,8 @@ impl StreamUtils {
         let _ = TOR_CLIENT
             .get_or_try_init(|| async {
                 let config = TorClientConfigBuilder::from_directories(
-                    Path::new(&config.cache_dir),
                     Path::new(&config.state_dir),
+                    Path::new(&config.cache_dir),
                 )
                 .build()
                 .map_err(|e| {
@@ -63,7 +63,7 @@ impl StreamUtils {
                     NetResultStatus::TorInitializationFailed
                 })
             })
-            .await?;
+            .await;
         Ok(())
     }
 

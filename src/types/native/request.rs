@@ -1,3 +1,5 @@
+use std::fmt;
+
 use crate::{
     types::{
         config::{NetConfigTor, NetProtocol},
@@ -107,5 +109,33 @@ impl<'a> NetRequest<'a> {
             NetProtocol::WebSocket | NetProtocol::Socket => self.to_socket_request().map(|_| ())?,
         };
         Ok(())
+    }
+}
+impl<'a> fmt::Debug for NetRequestKind<'a> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            NetRequestKind::Socket(_) => write!(f, "NetRequestKind::Socket"),
+            NetRequestKind::Grpc(grpc) => match grpc {
+                NetRequestGrpc::Unary(_) => write!(f, "NetRequestKind::Grpc::Unary"),
+                NetRequestGrpc::Stream(_) => write!(f, "NetRequestKind::Grpc::Stream"),
+                NetRequestGrpc::Unsubscribe(_) => {
+                    write!(f, "NetRequestKind::Grpc::Unsubscribe")
+                }
+            },
+            NetRequestKind::Http(http) => {
+                write!(f, "NetRequestKind::Http {{ url: {} }}", http.url)
+            }
+            NetRequestKind::InitTor(_) => write!(f, "NetRequestKind::InitTor"),
+            NetRequestKind::TorInited => write!(f, "NetRequestKind::TorInited"),
+        }
+    }
+}
+impl<'a> fmt::Debug for NetRequest<'a> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "NetRequest {{ id: {}, transport_id: {}, kind: {:?} }}",
+            self.id, self.transport_id, self.kind
+        )
     }
 }

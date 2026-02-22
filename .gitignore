@@ -2,3 +2,6 @@
 *.zip
 /.cargo
 /js
+Cargo_b.toml
+/cache
+/state

@@ -1,7 +1,4 @@
-use crate::{
-    types::{config::NetHttpHeader, error::NetResultStatus},
-    utils::buffer::StreamEncoding,
-};
+use crate::types::{config::NetHttpHeader, error::NetResultStatus};
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
 #[derive(Debug)]
@@ -58,7 +55,7 @@ impl NetResponseStreamError {
         self.status.clone()
     }
 }
-#[derive(Debug)]
+
 pub enum NetResponseStream {
     Data(NetResponseStreamData),
     Close(Option<i32>),
@@ -70,7 +67,6 @@ pub struct NetResponseHttp {
     status_code: u16,
     body: Vec<u8>,
     headers: Vec<NetHttpHeader>,
-    encoding: StreamEncoding,
 }
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen)]
 impl NetResponseHttp {
@@ -91,25 +87,13 @@ impl NetResponseHttp {
     pub fn headers(&self) -> Vec<NetHttpHeader> {
         self.headers.clone()
     }
-
-    /// Getter for `encoding`
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen)]
-    pub fn encoding(&self) -> StreamEncoding {
-        self.encoding.clone()
-    }
 }
 impl NetResponseHttp {
-    pub fn new(
-        status_code: u16,
-        body: Vec<u8>,
-        headers: Vec<NetHttpHeader>,
-        encoding: StreamEncoding,
-    ) -> NetResponseHttp {
+    pub fn new(status_code: u16, body: Vec<u8>, headers: Vec<NetHttpHeader>) -> NetResponseHttp {
         Self {
             status_code,
             body,
             headers,
-            encoding,
         }
     }
 }
@@ -169,7 +153,7 @@ impl NetResponseGrpcUnary {
         Self { data }
     }
 }
-#[derive(Debug)]
+
 pub enum NetResponseGrpc {
     Unary(NetResponseGrpcUnary),
     StreamId(NetResponseGrpcSubscribe),
@@ -181,7 +165,7 @@ pub struct NetResponse {
     pub request_id: u32,
     pub response: NetResponseKind,
 }
-#[derive(Debug)]
+
 pub enum NetResponseKind {
     Socket(NetResponseSocketOk),
     Grpc(NetResponseGrpc),
@@ -372,5 +356,72 @@ impl NetResponseWasm {
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen)]
     pub fn response_error(&self) -> Option<NetResultStatus> {
         self.response_error.clone()
+    }
+}
+use std::fmt;
+
+impl fmt::Debug for NetResponseStream {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            NetResponseStream::Data(d) => {
+                write!(
+                    f,
+                    "NetResponseStream::Data {{ id: {:?}, len: {} }}",
+                    d.id(),
+                    d.data().len()
+                )
+            }
+            NetResponseStream::Close(id) => {
+                write!(f, "NetResponseStream::Close {{ id: {:?} }}", id)
+            }
+            NetResponseStream::Error(e) => {
+                write!(f, "NetResponseStream::Error {{ id: {:?} }}", e.id())
+            }
+        }
+    }
+}
+impl fmt::Debug for NetResponseGrpc {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            NetResponseGrpc::Unary(_) => write!(f, "NetResponseGrpc::Unary"),
+            NetResponseGrpc::StreamId(s) => {
+                write!(f, "NetResponseGrpc::StreamId {{ id: {} }}", s.id())
+            }
+            NetResponseGrpc::Unsubscribe(u) => {
+                write!(f, "NetResponseGrpc::Unsubscribe {{ id: {} }}", u.id())
+            }
+        }
+    }
+}
+impl fmt::Debug for NetResponseKind {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            NetResponseKind::Socket(_) => write!(f, "NetResponseKind::Socket"),
+
+            NetResponseKind::Grpc(g) => write!(f, "NetResponseKind::{:?}", g),
+
+            NetResponseKind::Http(h) => {
+                write!(f, "NetResponseKind::Http {{ status: {} }}", h.status_code())
+            }
+
+            NetResponseKind::Stream(s) => write!(f, "NetResponseKind::{:?}", s),
+
+            NetResponseKind::ResponseError(_) => write!(f, "NetResponseKind::ResponseError"),
+
+            NetResponseKind::TransportClosed => write!(f, "NetResponseKind::TransportClosed"),
+
+            NetResponseKind::TorInited(ok) => {
+                write!(f, "NetResponseKind::TorInited {{ success: {} }}", ok)
+            }
+        }
+    }
+}
+impl fmt::Debug for NetResponse {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "NetResponse {{ transport_id: {}, request_id: {}, kind: {:?} }}",
+            self.transport_id, self.request_id, self.response
+        )
     }
 }

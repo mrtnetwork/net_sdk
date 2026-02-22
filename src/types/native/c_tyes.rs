@@ -444,7 +444,6 @@ pub struct NetResponseHttpC {
     pub body: BytesRefC,
     pub headers: *const NetHttpHeaderC,
     pub headers_len: u32,
-    pub encoding: u8,
 }
 #[repr(C)]
 pub struct NetResponseGrpcUnaryC {
@@ -612,7 +611,6 @@ impl NetResponseKind {
                             body: bytes_to_ref(h.body()),
                             headers: headers_ptr,
                             headers_len,
-                            encoding: h.encoding() as u8,
                         }),
                     },
                 }

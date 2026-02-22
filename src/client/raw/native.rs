@@ -24,7 +24,7 @@ where
             .writer
             .write_all(&data)
             .await
-            .map_err(|_| NetResultStatus::ConnectionError);
+            .map_err(|_| NetResultStatus::ConnectionError)?;
         self.writer
             .flush()
             .await

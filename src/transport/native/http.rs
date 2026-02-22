@@ -80,11 +80,12 @@ impl Transport for HttpTransport {
                     &http_request.method,
                     http_request.body,
                     http_request.headers.as_ref(),
-                    http_request.encoding,
                     &http_request.retry_config,
                 )
-                .await?;
-            return Ok(NetResponseKind::Http(result));
+                .await;
+
+            let _ = client.close();
+            return result.map(|e| NetResponseKind::Http(e));
         }
         // if(http_request.)
         self.send(http_request).await
@@ -110,10 +111,10 @@ impl IHttpTransport for HttpTransport {
                 &request.method,
                 request.body,
                 request.headers.as_ref(),
-                request.encoding,
                 &request.retry_config,
             )
             .await?;
+        println!("net response!");
         Ok(NetResponseKind::Http(result))
     }
 }

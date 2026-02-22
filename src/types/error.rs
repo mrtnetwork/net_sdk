@@ -17,16 +17,13 @@ pub enum NetResultStatus {
     InvalidRequestParameters = 15,
     InvalidConfigParameters = 16,
     TransportNotFound = 17,
-    // InvalidResponse = 18,
-    NotInitialized = 19,
-    // AlreadyInitialized = 20,
-    InitializationFailed = 21,
+    // NotInitialized = 19,
     RequestTimeout = 22,
     InvalidTorConfig = 23,
     TorInitializationFailed = 24,
-    // MismatchHttpUrl = 25,
     TorClientNotInitialized = 26,
     InternalError = 27,
+    InstanceDoesNotExist = 28,
 }
 
 impl fmt::Display for NetResultStatus {

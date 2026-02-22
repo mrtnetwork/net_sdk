@@ -42,6 +42,7 @@ impl Transport for SocketTransport {
         let config = config
             .to_protocol_config(NetProtocol::Socket)
             .or_else(|_| config.to_protocol_config(NetProtocol::WebSocket))?;
+
         let stream: Box<dyn IStreamClient> = match config.protocol {
             NetProtocol::WebSocket => match (config.addr.is_tls, &config.mode) {
                 (true, NetMode::Tor) => {
@@ -128,12 +129,15 @@ impl ISocketTransport for SocketTransport {
         let encoding = self.get_config().encoding;
         tokio::spawn(async move {
             let mut buffer = StreamBuffer::new(encoding);
+            println!("craete buffer {:#?}", encoding);
             loop {
                 match rx.recv().await {
                     Ok(msg) => match msg {
                         Ok(data) => match data {
                             Some(data) => {
+                                println!("data send {:#?}", data.len());
                                 if let Some(parsed) = buffer.add(data) {
+                                    println!("buffer success ${:#?}", parsed.len());
                                     callback(NetResponseKind::Stream(NetResponseStream::Data(
                                         NetResponseStreamData::new(None, parsed),
                                     )));

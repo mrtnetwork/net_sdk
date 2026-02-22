@@ -1,13 +1,10 @@
 use tokio::sync::{broadcast, oneshot};
 
-use crate::{
-    types::{
-        config::NetConfig,
-        error::NetResultStatus,
-        native::request::{NetHttpHeaderRef, NetHttpRetryConfig},
-        response::NetResponseHttp,
-    },
-    utils::buffer::StreamEncoding,
+use crate::types::{
+    config::NetConfig,
+    error::NetResultStatus,
+    native::request::{NetHttpHeaderRef, NetHttpRetryConfig},
+    response::NetResponseHttp,
 };
 
 #[async_trait::async_trait]
@@ -59,7 +56,6 @@ pub trait IHttpClient: IClient + Send + Sync {
         method: &'a str,
         body: Option<&'a [u8]>,
         headers: Option<&Vec<NetHttpHeaderRef<'a>>>,
-        encoding: StreamEncoding,
         retry_config: &NetHttpRetryConfig<'a>,
     ) -> Result<NetResponseHttp, NetResultStatus>;
 

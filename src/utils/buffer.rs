@@ -1,5 +1,4 @@
 use serde_json::Value;
-use std::str;
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen)]
@@ -25,17 +24,24 @@ impl StreamBuffer {
 
     /// Try to parse JSON incrementally
     fn is_json(&mut self, b: Vec<u8>) -> Option<Vec<u8>> {
-        for byte in b {
-            self.buffer.push(byte);
-
-            if let Ok(s) = str::from_utf8(&self.buffer) {
-                if serde_json::from_str::<Value>(s).is_ok() {
-                    let result = self.buffer.clone();
-                    self.buffer.clear();
-                    return Some(result);
+        if self.buffer.is_empty() {
+            if let Ok(s) = std::str::from_utf8(&b) {
+                if serde_json::from_str::<serde_json::Value>(s).is_ok() {
+                    return Some(b);
                 }
             }
+            self.buffer.extend_from_slice(&b);
+            return None;
         }
+        self.buffer.extend_from_slice(&b);
+        if let Ok(s) = std::str::from_utf8(&self.buffer) {
+            if serde_json::from_str::<serde_json::Value>(s).is_ok() {
+                let result = self.buffer.clone();
+                self.buffer.clear();
+                return Some(result);
+            }
+        }
+
         None
     }
 

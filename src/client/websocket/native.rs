@@ -28,12 +28,15 @@ where
             .map_err(|e| {
                 debug!("Socket write error: {:?}", e);
                 NetResultStatus::ConnectionError
-            })
+            })?;
+        self.writer.flush().await.map_err(|e| {
+            debug!("Socket write error: {:?}", e);
+            NetResultStatus::ConnectionError
+        })
     }
     async fn close(&mut self) {
         let _ = self.writer.send(Message::Close(None)).await;
         let _ = self.writer.close().await;
-        debug!("Socket close.");
     }
 }
 pub struct WsStreamClient<T> {
